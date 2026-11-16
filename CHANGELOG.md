@@ -3,14 +3,21 @@
 ## Unreleased
 
 - **`duplex`: a missed period no longer turns into an endless string of restarts.** After a start or
-  restart the output is kept fed until the input's first period comes in. A USB interface's input can
-  take longer than a period to start (the 1010music bluebox does), and before, the output ran dry
-  waiting for it, which restarted both, again and again: at 64 and 128 frames on the bluebox, 10-13
-  restarts a second, gaps of 80-800 ms. The output now starts with the depth it should have, so the
-  latency is the same after every start (before, it could differ by a period from one start to the next).
+  restart, while the input is slow to come in, the output is topped up with silence whenever it falls
+  below half a period. A USB interface's input can take longer than the output's buffer to start (the
+  1010music bluebox does), and before, the output ran dry waiting for it, which restarted both, again
+  and again: at 64 and 128 frames on the bluebox, 10-13 restarts a second, gaps of 80-800 ms. A start
+  whose input comes in time runs exactly as before. (A first version started the output a period
+  lower; on the bluebox at 128 frames the audio kept reopening, most likely as that left the driver short, so the
+  output starts full again, as it always did.)
+- **`usbaudio`: DUPLEX keeps a period more by itself when 2 keep missing.** With `<APP>_PERIODS` unset,
+  6 missed periods in 10 s with 2 queued reopen DUPLEX with 3 queued, for that card at that buffer and
+  below, and `audio.txt` keeps it (`periods3@<card>=<frames>`) so the next start begins with 3. On the
+  bluebox: 64 frames with 3 queued ran with no missed period at all, 19.6 ms round trip (34 ms at 256
+  with 2). `<APP>_PERIODS=2` keeps 2.
 - **`duplex`, `usbaudio`: the latency as measured.** `dx_held` gives what each direction really holds,
   the kernel driver's own queue included (snd_pcm_delay). Three seconds after DUPLEX starts the log says
-  so, in frames, ms and periods (3 by design), and `UaStats.latency_ms` uses it from then on.
+  so, in frames, ms and periods, and `UaStats.latency_ms` uses it from then on.
 
 ## 0.2.0
 
