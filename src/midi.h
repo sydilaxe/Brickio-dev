@@ -40,6 +40,7 @@ void midi_clock_out(float bpm);
 int midi_count(void);
 const char *midi_name(void);
 void midi_stop(void);
+#define midi_close midi_stop /* the older name (TrimFX) */
 
 /* ---------------------------------------------------------------- for an app with its own MIDI code
  * A raw MIDI port can be read by one opener only, so brickio opens the devices and an app that keeps

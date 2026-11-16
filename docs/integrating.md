@@ -4,6 +4,27 @@ The rule: **nothing changes for a user until a hardware test says it should.** B
 the app's old path as the default behind a setting, test on a Brick, then flip the default. Each module
 can be taken on its own; the order below goes from no risk to the most gain.
 
+## TrimFX: already on brickio's audio and MIDI
+
+TrimFX's `lib/brickio` holds the first versions of `usbaudio`, `duplex`, `aring` and `midi`. brickio's
+copies are a superset: with TrimFX's settings as they are (no `rate`, no `no_input`), they open the same
+devices at 48 kHz, pin the same cores, and run the same paths. Checked by building TrimFX with them
+(Brick and desktop builds, no new warnings), its engine tests, and its own older ring and duplex tests
+run unchanged against brickio's code (98 and 12 checks, all pass).
+
+1. `tools/brickio-sync.sh <tag>` from TrimFX's repository. It also copies the modules TrimFX doesn't
+   compile yet (`link`, `mclock`, `perflog`, ...): harmless, as the Makefile names the four it builds.
+2. **Keep `src/perflog.c/h`.** TrimFX's dropout check differs from brickio's (it doesn't count the first
+   0.5 s after opening, and early callbacks never hide a later stall); one will be chosen from a Brick's
+   logs. Until then TrimFX's own `src/perflog.h` is the one its files include.
+3. Take brickio's `tests/test_aring.c` and `tests/test_duplex.c` into `lib/brickio/tests/`, with
+   `#include "../src/` changed to `#include "../`. TrimFX's older ones still pass, but warn under
+   `-Wextra` about the new fields they don't set.
+4. `midi_close()` stays (another name for `midi_stop`), and `DxConfig`'s new field is last, so older
+   initialisers still line up.
+5. Later, behind a setting: `mclock` for MIDI clock in (phase held, not just the tempo) in place of
+   TrimFX's own four-beat average, and the Brick link.
+
 ## 1. Drop-in replacements (the same behaviour, one copy)
 
 These replace files the apps already have. Copy brickio in (`tools/brickio-sync.sh`), delete the app's

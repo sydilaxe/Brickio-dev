@@ -42,6 +42,16 @@ int link_open(const LinkDev *d);
 /* send to it: 1 sent, 0 not this time (busy), -1 gone (close it) */
 int link_send(int fd, int ep, const uint8_t *b, int n);
 
+/* the Brick link's data channel (blink.h, blinkio.h): before link_follow_start, 1 asks for a second
+ * interface on the bottom port (bulk, each way) beside the clock link, whose interface 0 stays as it is.
+ * Off by default. If the port won't take both, the clock link is set up alone, as before */
+void link_follow_data(int on);
+/* after link_follow_start: the data channel's endpoint files (out_fd: what the leader sends, to read;
+ * in_fd: to write), 1 if it is up. The caller closes them */
+int link_data_open(int *out_fd, int *in_fd);
+
 /* what the follower writes to FunctionFS, for the tests: the length */
 int link_descriptors(uint8_t *buf, int max);
 int link_strings(uint8_t *buf, int max);
+int link_data_descriptors(uint8_t *buf, int max);
+int link_data_strings(uint8_t *buf, int max);

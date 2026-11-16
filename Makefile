@@ -1,6 +1,7 @@
 # brickio: USB audio, MIDI and sync for the sydilaxe TrimUI apps
 #   make test     the host tests (ASan / UBSan)
 #   make check    every module compiled for the host and, with zig, for the Brick (aarch64, glibc 2.28)
+#   make tools    the device tools for the Brick (build/aarch64): blink-test, probe-iso
 #   make version
 # zig: ZIG=/path/to/zig, or `pip install ziglang==0.14.1` (used as `python3 -m ziglang`)
 
@@ -11,15 +12,18 @@ SRC      := $(wildcard src/*.c)
 HDR      := $(wildcard src/*.h)
 WARN     := -Wall -Wextra -Wno-missing-field-initializers
 TFLAGS   := -std=gnu11 -O1 -g $(WARN) -fsanitize=address,undefined
-TESTS    := test_aring test_duplex test_link test_linkpos test_mclock test_midi test_perflog test_sync
+TESTS    := test_aring test_blink test_duplex test_link test_linkpos test_mclock test_midi test_perflog test_sync
 
-.PHONY: test check cross version
+.PHONY: test check cross tools version
 test: $(addprefix build/,$(TESTS))
 	@for t in $(TESTS); do echo "== $$t"; build/$$t || exit 1; done
 
 build/test_aring: tests/test_aring.c src/aring.c $(HDR)
 	@mkdir -p build
 	$(HOST_CC) $(TFLAGS) -o $@ tests/test_aring.c src/aring.c -lm
+build/test_blink: tests/test_blink.c src/blink.c src/blinkio.c src/aring.c src/link.c $(HDR)
+	@mkdir -p build
+	$(HOST_CC) $(TFLAGS) -o $@ tests/test_blink.c src/blink.c src/blinkio.c src/aring.c src/link.c -lpthread -lm
 build/test_duplex: tests/test_duplex.c src/duplex.c $(HDR)
 	@mkdir -p build
 	$(HOST_CC) $(TFLAGS) -o $@ tests/test_duplex.c src/duplex.c -ldl -lpthread
@@ -46,10 +50,20 @@ build/test_sync: tests/test_sync.c src/sync.c src/aclock.c $(HDR)
 check:
 	@for f in $(SRC); do $(HOST_CC) -std=gnu11 $(WARN) -Werror -I$(SDL_INC) -fsyntax-only $$f || exit 1; done; echo "host: ok"
 	@$(MAKE) -s cross
+	@$(MAKE) -s tools
 cross:
 	@mkdir -p build/aarch64
 	@for f in $(SRC); do $(ZIG) cc -target aarch64-linux-gnu.2.28 -mcpu=cortex_a53 -std=gnu11 -O2 $(WARN) -Werror -I$(SDL_INC) \
 		-c -o build/aarch64/$$(basename $$f .c).o $$f || exit 1; done; echo "aarch64 (glibc 2.28): ok"
+
+tools: build/aarch64/blink-test build/aarch64/probe-iso
+build/aarch64/blink-test: tools/blink-test.c src/blink.c src/blinkio.c src/aring.c src/link.c $(HDR)
+	@mkdir -p build/aarch64
+	$(ZIG) cc -target aarch64-linux-gnu.2.28 -mcpu=cortex_a53 -std=gnu11 -O2 $(WARN) -Werror -o $@ \
+		tools/blink-test.c src/blink.c src/blinkio.c src/aring.c src/link.c -lpthread -lm -s
+build/aarch64/probe-iso: tools/probe-iso.c
+	@mkdir -p build/aarch64
+	$(ZIG) cc -target aarch64-linux-gnu.2.28 -mcpu=cortex_a53 -std=gnu11 -O2 $(WARN) -o $@ $< -s
 
 version:
 	@cat VERSION

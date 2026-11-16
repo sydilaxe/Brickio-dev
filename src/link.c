@@ -1,6 +1,7 @@
 /* The clock link between Bricks over USB (see link.h). */
 #define _GNU_SOURCE
 #include "link.h"
+#include "blink.h"
 #include <sys/ioctl.h>
 #include <linux/usbdevice_fs.h>
 
@@ -24,6 +25,10 @@
 #define GADGET "/sys/kernel/config/usb_gadget/trimuilink"
 #define FFS_NAME "trimuilink"
 #define FFS_DIR "/tmp/trimuilink-ffs"
+/* the Brick link's data channel (blink.h), a second function beside the clock link, when asked for */
+#define DATA_NAME "Brick link data"
+#define DATA_FFS "brickdata"
+#define DATA_DIR "/tmp/brickdata-ffs"
 
 static uint64_t now_us(void)
 {
@@ -86,6 +91,68 @@ int link_strings(uint8_t *buf, int max)
     s.head.lang_count = htole32(1);
     s.code = htole16(0x0409);
     memcpy(s.str, LINK_NAME, sizeof LINK_NAME);
+    if ((int)sizeof s > max)
+        return 0;
+    memcpy(buf, &s, sizeof s);
+    return (int)sizeof s;
+}
+
+/* the data channel: a vendor interface (subclass 'B', protocol 'D') with a bulk endpoint each way.
+ * FunctionFS names them ep1 (OUT: what the leader sends) and ep2 (IN: what this Brick sends) */
+int link_data_descriptors(uint8_t *buf, int max)
+{
+    typedef struct {
+        struct usb_interface_descriptor intf;
+        struct usb_endpoint_descriptor_no_audio out, in;
+    } __attribute__((packed)) DataDescs;
+    struct {
+        struct usb_functionfs_descs_head_v2 head;
+        __le32 fs_count, hs_count;
+        DataDescs fs, hs;
+    } __attribute__((packed)) d;
+    memset(&d, 0, sizeof d);
+    d.head.magic = htole32(FUNCTIONFS_DESCRIPTORS_MAGIC_V2);
+    d.head.flags = htole32(FUNCTIONFS_HAS_FS_DESC | FUNCTIONFS_HAS_HS_DESC);
+    d.head.length = htole32(sizeof d);
+    d.fs_count = d.hs_count = htole32(3);
+    DataDescs *s[2] = {&d.fs, &d.hs};
+    for (int k = 0; k < 2; k++) {
+        s[k]->intf.bLength = USB_DT_INTERFACE_SIZE;
+        s[k]->intf.bDescriptorType = USB_DT_INTERFACE;
+        s[k]->intf.bNumEndpoints = 2;
+        s[k]->intf.bInterfaceClass = USB_CLASS_VENDOR_SPEC;
+        s[k]->intf.bInterfaceSubClass = BLINK_SUBCLASS;
+        s[k]->intf.bInterfaceProtocol = BLINK_PROTOCOL;
+        s[k]->intf.iInterface = 1;
+        struct usb_endpoint_descriptor_no_audio *e[2] = {&s[k]->out, &s[k]->in};
+        for (int j = 0; j < 2; j++) {
+            e[j]->bLength = USB_DT_ENDPOINT_SIZE;
+            e[j]->bDescriptorType = USB_DT_ENDPOINT;
+            e[j]->bEndpointAddress = (uint8_t)(j ? 2 | USB_DIR_IN : 1 | USB_DIR_OUT);
+            e[j]->bmAttributes = USB_ENDPOINT_XFER_BULK;
+            e[j]->wMaxPacketSize = htole16(k ? 512 : 64);
+        }
+    }
+    if ((int)sizeof d > max)
+        return 0;
+    memcpy(buf, &d, sizeof d);
+    return (int)sizeof d;
+}
+
+int link_data_strings(uint8_t *buf, int max)
+{
+    struct {
+        struct usb_functionfs_strings_head head;
+        __le16 code;
+        char str[sizeof DATA_NAME];
+    } __attribute__((packed)) s;
+    memset(&s, 0, sizeof s);
+    s.head.magic = htole32(FUNCTIONFS_STRINGS_MAGIC);
+    s.head.length = htole32(sizeof s);
+    s.head.str_count = htole32(1);
+    s.head.lang_count = htole32(1);
+    s.code = htole16(0x0409);
+    memcpy(s.str, DATA_NAME, sizeof DATA_NAME);
     if ((int)sizeof s > max)
         return 0;
     memcpy(buf, &s, sizeof s);
@@ -161,11 +228,14 @@ int link_find(const char *sysfs, LinkDev *out, int max)
             if (strncmp(f->d_name, "ep_", 3))
                 continue;
             char dir[16] = "", type[16] = "";
-            snprintf(p, sizeof p, "%s/%s/direction", in, f->d_name);
+            if (snprintf(p, sizeof p, "%s/%s/direction", in, f->d_name) >= (int)sizeof p)
+                continue; /* a path too long to be one of ours */
             get(p, dir, sizeof dir);
-            snprintf(p, sizeof p, "%s/%s/type", in, f->d_name);
+            if (snprintf(p, sizeof p, "%s/%s/type", in, f->d_name) >= (int)sizeof p)
+                continue;
             get(p, type, sizeof type);
-            snprintf(p, sizeof p, "%s/%s/bEndpointAddress", in, f->d_name);
+            if (snprintf(p, sizeof p, "%s/%s/bEndpointAddress", in, f->d_name) >= (int)sizeof p)
+                continue;
             if (!strcmp(dir, "out") && !strcmp(type, "Bulk") && get(p, v, sizeof v))
                 ep = (int)strtol(v, NULL, 16);
         }
@@ -191,6 +261,7 @@ int link_find(const char *sysfs, LinkDev *out, int max)
 /* ---------------------------------------------------------- follower */
 
 static int ep0 = -1, ep1 = -1, set_up;
+static int data_want, data_up, data_ep0 = -1;
 static volatile int running;
 static volatile uint64_t last_in;
 static void (*sink)(const uint8_t *b, int n, uint64_t t_us, void *ud);
@@ -215,6 +286,13 @@ static void teardown(void)
     if (ep0 >= 0)
         close(ep0);
     ep0 = ep1 = -1;
+    if (data_ep0 >= 0)
+        close(data_ep0);
+    data_ep0 = -1, data_up = 0;
+    umount(DATA_DIR);
+    rmdir(DATA_DIR);
+    unlink(GADGET "/configs/c.1/ffs." DATA_FFS);
+    rmdir(GADGET "/functions/ffs." DATA_FFS);
     umount(FFS_DIR);
     rmdir(FFS_DIR);
     unlink(GADGET "/configs/c.1/ffs." FFS_NAME);
@@ -231,11 +309,13 @@ static int free_udc(char *udc, int n)
     DIR *d = opendir("/sys/class/udc");
     struct dirent *e;
     udc[0] = 0;
-    while (d && (e = readdir(d)))
-        if (e->d_name[0] != '.') {
-            snprintf(udc, (size_t)n, "%s", e->d_name);
+    while (d && (e = readdir(d))) {
+        if (e->d_name[0] == '.')
+            continue;
+        if (snprintf(udc, (size_t)n, "%s", e->d_name) < n)
             break;
-        }
+        udc[0] = 0; /* a name too long for us: not a controller we know */
+    }
     if (d)
         closedir(d);
     if (!udc[0])
@@ -286,6 +366,44 @@ static void *loop(void *arg)
     return NULL;
 }
 
+/* the gadget, with the data channel or not, bound to the port: 1 if it worked */
+static int setup(const char *udc, int with_data)
+{
+    int ok = mkdir(GADGET, 0755) == 0 && put(GADGET "/idVendor", "0x1d6b") && put(GADGET "/idProduct", "0x0104") &&
+             put(GADGET "/bcdUSB", "0x0200") && mkdir(GADGET "/strings/0x409", 0755) == 0 &&
+             put(GADGET "/strings/0x409/manufacturer", "TrimUI") &&
+             put(GADGET "/strings/0x409/product", LINK_NAME) && mkdir(GADGET "/configs/c.1", 0755) == 0 &&
+             mkdir(GADGET "/configs/c.1/strings/0x409", 0755) == 0 &&
+             put(GADGET "/configs/c.1/strings/0x409/configuration", "clock link") &&
+             put(GADGET "/configs/c.1/MaxPower", "100") && mkdir(GADGET "/functions/ffs." FFS_NAME, 0755) == 0 &&
+             symlink(GADGET "/functions/ffs." FFS_NAME, GADGET "/configs/c.1/ffs." FFS_NAME) == 0;
+    if (ok) {
+        mkdir(FFS_DIR, 0755);
+        ok = mount(FFS_NAME, FFS_DIR, "functionfs", 0, NULL) == 0;
+    }
+    uint8_t b[256];
+    int n;
+    ok = ok && (ep0 = open(FFS_DIR "/ep0", O_RDWR | O_CLOEXEC)) >= 0 && (n = link_descriptors(b, sizeof b)) > 0 &&
+         write(ep0, b, (size_t)n) == n && (n = link_strings(b, sizeof b)) > 0 && write(ep0, b, (size_t)n) == n;
+    /* the data channel: interface 1, after the clock link's interface 0 (which stays as it is) */
+    if (ok && with_data) {
+        ok = mkdir(GADGET "/functions/ffs." DATA_FFS, 0755) == 0 &&
+             symlink(GADGET "/functions/ffs." DATA_FFS, GADGET "/configs/c.1/ffs." DATA_FFS) == 0;
+        if (ok) {
+            mkdir(DATA_DIR, 0755);
+            ok = mount(DATA_FFS, DATA_DIR, "functionfs", 0, NULL) == 0;
+        }
+        ok = ok && (data_ep0 = open(DATA_DIR "/ep0", O_RDWR | O_CLOEXEC)) >= 0 &&
+             (n = link_data_descriptors(b, sizeof b)) > 0 && write(data_ep0, b, (size_t)n) == n &&
+             (n = link_data_strings(b, sizeof b)) > 0 && write(data_ep0, b, (size_t)n) == n;
+    }
+    char nl[80];
+    snprintf(nl, sizeof nl, "%s\n", udc);
+    ok = ok && put(GADGET "/UDC", nl);
+    data_up = ok && with_data;
+    return ok;
+}
+
 int link_follow_start(const char *app, void (*on_bytes)(const uint8_t *b, int n, uint64_t t_us, void *ud), void *ud,
                       void (*notice)(const char *msg))
 {
@@ -308,25 +426,12 @@ int link_follow_start(const char *app, void (*on_bytes)(const uint8_t *b, int n,
             fprintf(stderr, "link: no USB device controller, not linking\n");
         return 0;
     }
-    int ok = mkdir(GADGET, 0755) == 0 && put(GADGET "/idVendor", "0x1d6b") && put(GADGET "/idProduct", "0x0104") &&
-             put(GADGET "/bcdUSB", "0x0200") && mkdir(GADGET "/strings/0x409", 0755) == 0 &&
-             put(GADGET "/strings/0x409/manufacturer", "TrimUI") &&
-             put(GADGET "/strings/0x409/product", LINK_NAME) && mkdir(GADGET "/configs/c.1", 0755) == 0 &&
-             mkdir(GADGET "/configs/c.1/strings/0x409", 0755) == 0 &&
-             put(GADGET "/configs/c.1/strings/0x409/configuration", "clock link") &&
-             put(GADGET "/configs/c.1/MaxPower", "100") && mkdir(GADGET "/functions/ffs." FFS_NAME, 0755) == 0 &&
-             symlink(GADGET "/functions/ffs." FFS_NAME, GADGET "/configs/c.1/ffs." FFS_NAME) == 0;
-    if (ok) {
-        mkdir(FFS_DIR, 0755);
-        ok = mount(FFS_NAME, FFS_DIR, "functionfs", 0, NULL) == 0;
+    int ok = setup(udc, data_want);
+    if (!ok && data_want) { /* the controller wouldn't take both: the clock link alone, as before */
+        fprintf(stderr, "link: the data channel didn't bind (%s): the clock link alone\n", strerror(errno));
+        teardown();
+        ok = setup(udc, 0);
     }
-    uint8_t b[256];
-    int n;
-    ok = ok && (ep0 = open(FFS_DIR "/ep0", O_RDWR | O_CLOEXEC)) >= 0 && (n = link_descriptors(b, sizeof b)) > 0 &&
-         write(ep0, b, (size_t)n) == n && (n = link_strings(b, sizeof b)) > 0 && write(ep0, b, (size_t)n) == n;
-    char nl[80];
-    snprintf(nl, sizeof nl, "%s\n", udc);
-    ok = ok && put(GADGET "/UDC", nl);
     if (!ok) {
         fprintf(stderr, "link: could not set up the bottom port (%s)\n", strerror(errno));
         teardown();
@@ -344,8 +449,26 @@ int link_follow_start(const char *app, void (*on_bytes)(const uint8_t *b, int n,
         teardown();
         return 0;
     }
-    fprintf(stderr, "link: the bottom port is a %s on %s: a Brick with a hub in its top port can lead this one\n",
-            LINK_NAME, udc);
+    fprintf(stderr, "link: the bottom port is a %s on %s%s: a Brick with a hub in its top port can lead this one\n",
+            LINK_NAME, udc, data_up ? ", with the data channel" : "");
+    return 1;
+}
+
+void link_follow_data(int on) { data_want = on; }
+
+int link_data_open(int *out_fd, int *in_fd)
+{
+    *out_fd = *in_fd = -1;
+    if (!set_up || !data_up)
+        return 0;
+    *out_fd = open(DATA_DIR "/ep1", O_RDONLY | O_CLOEXEC);
+    *in_fd = open(DATA_DIR "/ep2", O_WRONLY | O_CLOEXEC);
+    if (*out_fd < 0 || *in_fd < 0) {
+        if (*out_fd >= 0) close(*out_fd);
+        if (*in_fd >= 0) close(*in_fd);
+        *out_fd = *in_fd = -1;
+        return 0;
+    }
     return 1;
 }
 

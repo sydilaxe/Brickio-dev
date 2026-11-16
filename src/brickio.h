@@ -2,11 +2,13 @@
 /* brickio: USB audio, MIDI and sync for the sydilaxe TrimUI apps. One include for all of it; or take the
  * modules one at a time (each .c needs only its own .h, but for usbaudio.c: aring, duplex, SDL2). */
 #pragma once
-#define BRICKIO_VERSION "0.1.0"
-#define BRICKIO_VERSION_NUM 100 /* major * 10000 + minor * 100 + patch */
+#define BRICKIO_VERSION "0.2.0"
+#define BRICKIO_VERSION_NUM 200 /* major * 10000 + minor * 100 + patch */
 
 #include "aclock.h"   /* the audio clock: where the music is at the speaker, at any moment */
 #include "aring.h"    /* the input's ring between two callbacks: cushion, drift, resampling */
+#include "blink.h"    /* the Brick link's data channel: its frames */
+#include "blinkio.h"  /* the Brick link's data channel: sessions, audio and MIDI between Bricks */
 #include "duplex.h"   /* one interface straight through ALSA: full duplex, or playback only */
 #include "link.h"     /* the clock link between Bricks over USB (the bottom port as a device) */
 #include "linkpos.h"  /* the link's position message (F0 7D 'T' 'L') */
