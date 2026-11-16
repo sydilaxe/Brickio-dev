@@ -10,6 +10,11 @@
   whose input comes in time runs exactly as before. (A first version started the output a period
   lower; on the bluebox at 128 frames the audio kept reopening, most likely as that left the driver short, so the
   output starts full again, as it always did.)
+- **`usbaudio`: DUPLEX keeps a period more by itself when 2 keep missing.** With `<APP>_PERIODS` unset,
+  6 missed periods in 10 s with 2 queued reopen DUPLEX with 3 queued, for that card at that buffer and
+  below, and `audio.txt` keeps it (`periods3@<card>=<frames>`) so the next start begins with 3. On the
+  bluebox: 64 frames with 3 queued ran with no missed period at all, 19.6 ms round trip (34 ms at 256
+  with 2). `<APP>_PERIODS=2` keeps 2.
 - **`duplex`, `usbaudio`: the latency as measured.** `dx_held` gives what each direction really holds,
   the kernel driver's own queue included (snd_pcm_delay). Three seconds after DUPLEX starts the log says
   so, in frames, ms and periods, and `UaStats.latency_ms` uses it from then on.
