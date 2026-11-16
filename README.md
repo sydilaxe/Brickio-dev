@@ -21,6 +21,7 @@ apps' own code. Anything new is opt-in: an app that takes brickio and sets nothi
 | `midi.c/h` | USB MIDI: every raw MIDI port, a reader thread, messages stamped on arrival, clock out on an absolute timetable, a **raw tap** for an app that keeps its own parser, a SysEx hook | TrimFX |
 | `link.c/h` | The **clock link** between Bricks over USB (the follower's bottom port as a USB device; any number follow one) | Conduit, Columbia Street, HI5, Jaffedrone, RadioScan (one copy, same bytes) |
 | `linkpos.c/h` | The link's position message, `F0 7D 'T' 'L' …` (the apps' `midi_link_pos`) | the same |
+| `mclock.c/h` | **The musical clock:** MIDI clock and the USB link, in and out, on one timeline (the sound as heard). Clock in: tempo from a line through four beats of arrival times, phase held by trimming the app's speed; START / CONTINUE / STOP; a leading Brick's link position wins. Clock out and the link position stepped from the heard sound. No I/O: driven by the MIDI thread, talking to the app through a `ClockHost` of callbacks | Columbia Street, HI5, Jaffedrone, RadioScan's `midi.c` (decoupled), plus the MIDI 1.0 downbeat and one-beat tempo changes |
 | `sync.c/h` | **HI5S**, the Wi-Fi sync: tempo, bar phase and transport over UDP, one unit leading | RadioScan's (the others' copies, decoupled) |
 | `aclock.c/h` | The audio clock: where the music is at the speaker, at any moment | HI5, Jaffedrone, Columbia Street, RadioScan (identical) |
 | `perflog.c/h` | The performance log: SYS, STAT, PROC, JUMP, HINT, END, with the false-dropout fix | the apps, fixed in TrimFX |
@@ -87,7 +88,9 @@ int main(void)
 ## Developing it
 
 `make test` runs the host tests under ASan / UBSan: the ring against jitter, bursts, drift and stalls;
-the direct path against ALSA's null device (full duplex and playback only, 48 and 96 kHz); the link's
+the musical clock against a simulated app (clock in with jitter at 120 and 250 BPM, a tempo change
+mid-song, a clock running before START, a leading Brick's link, the clock out, the modes); the
+direct path against ALSA's null device (full duplex and playback only, 48 and 96 kHz); the link's
 USB descriptors and position message against the apps' own bytes; MIDI through a FIFO (running status,
 real-time bytes mid-message, the raw tap, the SysEx hook); HI5S's packet layout, older units and the
 election. `make check` compiles every module for the host and for the Brick (aarch64, glibc 2.28) with
