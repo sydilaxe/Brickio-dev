@@ -40,7 +40,10 @@ int main(void)
         char err[200] = "";
         periods = 0;
         /* the second round as an app written before 0.1 sets it up (no rate: 48 kHz) */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers" /* on purpose: rate left out */
         DxConfig c = {"pcm:null", 2, 2, 64, 2, on_thread, period, NULL, lg};
+#pragma GCC diagnostic pop
         if (!round) c.rate = 48000;
         int r = dx_start(&c, err, sizeof err);
         CHECK(r == 0, "round %d: starts on the null device (%s)", round, err);
