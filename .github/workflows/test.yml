@@ -1,0 +1,26 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Host tests and the Brick build of every module
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests (ASan / UBSan)
+        run: |
+          sudo apt-get update -q && (sudo apt-get install -y -q libasound2t64 || sudo apt-get install -y -q libasound2)
+          make test
+      - name: Every module for the host and for the Brick (aarch64, glibc 2.28)
+        run: |
+          pip install ziglang==0.14.1
+          make check
+      - name: The version moves together
+        run: |
+          v=$(make -s version)
+          grep -q "#define BRICKIO_VERSION \"$v\"" src/brickio.h || { echo "::error::src/brickio.h isn't $v"; exit 1; }
+          grep -q "^## $v" CHANGELOG.md || { echo "::error::CHANGELOG.md has no $v"; exit 1; }
