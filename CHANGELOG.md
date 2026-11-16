@@ -1,5 +1,17 @@
 # Changes
 
+## Unreleased
+
+- **`duplex`: a missed period no longer turns into an endless string of restarts.** After a start or
+  restart the output is kept fed until the input's first period comes in. A USB interface's input can
+  take longer than a period to start (the 1010music bluebox does), and before, the output ran dry
+  waiting for it, which restarted both, again and again: at 64 and 128 frames on the bluebox, 10-13
+  restarts a second, gaps of 80-800 ms. The output now starts with the depth it should have, so the
+  latency is the same after every start (before, it could differ by a period from one start to the next).
+- **`duplex`, `usbaudio`: the latency as measured.** `dx_held` gives what each direction really holds,
+  the kernel driver's own queue included (snd_pcm_delay). Three seconds after DUPLEX starts the log says
+  so, in frames, ms and periods (3 by design), and `UaStats.latency_ms` uses it from then on.
+
 ## 0.2.0
 
 - **The Brick link's data channel** (`blink`, `blinkio`; [docs/brick-audio.md](docs/brick-audio.md)):
