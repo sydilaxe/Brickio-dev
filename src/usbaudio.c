@@ -560,7 +560,8 @@ static int start_duplex(const char *o, const char *i)
     atomic_store(&hw_period_a, 0), atomic_store(&last_call_ns, 0);
     if (atomic_load(&guard)) notes |= UA_NOTE_UNGUARD;
     atomic_store(&guard, 0);
-    DxConfig c = {id, chi, cho, buffer, duplex_periods, rate_hz, dx_thread, dx_period, NULL, lg};
+    DxConfig c = {.card = id, .ch_in = chi, .ch_out = cho, .frames = buffer, .periods = duplex_periods, .rate = rate_hz,
+                  .on_thread = dx_thread, .period = dx_period, .ud = NULL, .log = lg};
     if (dx_start(&c, err, sizeof err) < 0) {
         lg("AUDIO", "DUPLEX not possible on %s (%s): two streams instead", id, err);
         snprintf(duplex_failed, sizeof duplex_failed, "%s", id);

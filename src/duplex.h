@@ -16,13 +16,14 @@ typedef struct {
     int ch_in, ch_out; /* the interface's channels each way; ch_in 0: playback only (a synth) */
     int frames;        /* the period asked for (the interface may give another) */
     int periods;       /* what the output keeps queued, in periods: 2 (the least) or 3 */
-    int rate;          /* frames a second (0: 48000): the interface must run it, no resampling */
     /* the real-time thread, once, as it starts (priority, core) */
     void (*on_thread)(void);
     /* each period: cap is ch_in interleaved, play ch_out interleaved, frames each (float) */
     void (*period)(const float *cap, float *play, int frames, void *ud);
     void *ud;
     void (*log)(const char *tag, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+    /* new in brickio 0.1, last so that older initialisers still line up (0 keeps the old behaviour) */
+    int rate;          /* frames a second (0: 48000): the interface must run it, no resampling */
 } DxConfig;
 
 /* opens, configures and starts; 0 on success (why not in err otherwise) */

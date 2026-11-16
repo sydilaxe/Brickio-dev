@@ -11,6 +11,10 @@
   newer leader sees no data channel on an older follower. If the port won't take both, the clock link
   is set up alone.
 - **`link`:** paths too long for its buffers are passed over rather than cut short (no change on a Brick).
+- **Nothing breaks for TrimFX:** `midi_close` is back (another name for `midi_stop`, which TrimFX
+  calls), and `DxConfig.rate` (new in 0.1) moved to the end, so initialisers written before it still
+  line up (0: 48 kHz). `tests/test_duplex` runs one round set up the old way. Checked by building TrimFX
+  with brickio's files ([docs/integrating.md](docs/integrating.md), "TrimFX").
 - `make tools` builds `blink-test` and `probe-iso` for the Brick; `make check` builds them too.
 
 ## 0.1.0

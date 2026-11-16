@@ -39,7 +39,9 @@ int main(void)
     for (int round = 0; round < 2; round++) {
         char err[200] = "";
         periods = 0;
-        DxConfig c = {"pcm:null", 2, 2, 64, 2, 48000, on_thread, period, NULL, lg};
+        /* the second round as an app written before 0.1 sets it up (no rate: 48 kHz) */
+        DxConfig c = {"pcm:null", 2, 2, 64, 2, on_thread, period, NULL, lg};
+        if (!round) c.rate = 48000;
         int r = dx_start(&c, err, sizeof err);
         CHECK(r == 0, "round %d: starts on the null device (%s)", round, err);
         if (r) break;
@@ -56,7 +58,7 @@ int main(void)
     {
         char err[200] = "";
         periods = 0, bad_frames = 0;
-        DxConfig c = {"pcm:null", 0, 2, 64, 2, 96000, NULL, period, NULL, lg};
+        DxConfig c = {"pcm:null", 0, 2, 64, 2, NULL, period, NULL, lg, 96000};
         int r = dx_start(&c, err, sizeof err);
         CHECK(r == 0, "playback only, 96 kHz: starts (%s)", err);
         struct timespec ts = {0, 100 * 1000 * 1000};
@@ -65,7 +67,7 @@ int main(void)
         dx_stop();
     }
     char err[200] = "";
-    DxConfig bad = {"no-such-card-xyz", 2, 2, 64, 2, 48000, NULL, period, NULL, lg};
+    DxConfig bad = {"no-such-card-xyz", 2, 2, 64, 2, NULL, period, NULL, lg, 48000};
     CHECK(dx_start(&bad, err, sizeof err) < 0 && *err, "a card that isn't there fails cleanly (%s)", err);
     printf("\n%d checks, %d failed\n", checks, fails);
     return fails != 0;
