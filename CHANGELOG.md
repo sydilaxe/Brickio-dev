@@ -4,8 +4,10 @@
 
 The first version: the apps' shared code in one place.
 
-- **From TrimFX:** `usbaudio`, `duplex`, `aring`, `midi`, and its `perflog` (with the false-dropout fix:
-  buffer times are exact, so 128 frames no longer report a dropout every ~30 s).
+- **From TrimFX:** `usbaudio`, `duplex`, `aring`, `midi`, and its `perflog`, whose dropout count is the
+  apps' fixed one (the same code as HI5's, RadioScan's and brick-resources' copies after their fix):
+  exact buffer times, a device clock up to 0.1 % slow followed, bursts of callbacks (PipeWire) banking
+  at most two buffers of credit, a real stall still counted (`tests/test_perflog.c`).
 - **New:** playback only (`UaConfig.no_input`: a synth's USB output straight through ALSA from one
   real-time thread); the rate (`UaConfig.rate`: 44.1, 48, 88.2 or 96 kHz); `ua_cores` and
   `<APP>_CORES` for apps with threads of their own to place; `midi_set_raw` (the bytes for an app's

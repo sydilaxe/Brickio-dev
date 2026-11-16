@@ -11,7 +11,7 @@ SRC      := $(wildcard src/*.c)
 HDR      := $(wildcard src/*.h)
 WARN     := -Wall -Wextra -Wno-missing-field-initializers
 TFLAGS   := -std=gnu11 -O1 -g $(WARN) -fsanitize=address,undefined
-TESTS    := test_aring test_duplex test_link test_linkpos test_mclock test_midi test_sync
+TESTS    := test_aring test_duplex test_link test_linkpos test_mclock test_midi test_perflog test_sync
 
 .PHONY: test check cross version
 test: $(addprefix build/,$(TESTS))
@@ -35,6 +35,9 @@ build/test_mclock: tests/test_mclock.c src/mclock.c src/aclock.c src/linkpos.c $
 build/test_midi: tests/test_midi.c src/midi.c src/linkpos.c $(HDR)
 	@mkdir -p build
 	$(HOST_CC) $(TFLAGS) -o $@ tests/test_midi.c src/midi.c src/linkpos.c -lpthread -lm
+build/test_perflog: tests/test_perflog.c tests/fake_clock.h src/perflog.c $(HDR)
+	@mkdir -p build
+	$(HOST_CC) $(TFLAGS) -include tests/fake_clock.h -o $@ tests/test_perflog.c src/perflog.c -lm
 build/test_sync: tests/test_sync.c src/sync.c src/aclock.c $(HDR)
 	@mkdir -p build
 	$(HOST_CC) $(TFLAGS) -o $@ tests/test_sync.c src/sync.c src/aclock.c -lm

@@ -28,8 +28,8 @@ static uint64_t a_us_sum, a_frames;
 /* the audio thread's own: the sound made against real time, for dropouts */
 static int a_rate = 48000, a_bufsz;
 static int a_reset = 1;
-static uint64_t a_prev, a_open;
-static double a_debt_us; /* how far the callbacks have fallen behind the sound they make */
+static uint64_t a_clock0, a_prev;
+static double a_made_us; /* exact: frames / rate doesn't divide into whole microseconds */
 static int a_rt = -1;
 static char a_dev[96];
 
@@ -196,32 +196,38 @@ uint64_t perf_audio_begin(int frames)
     uint64_t t = perf_now_us();
     if (!AT(a_tid))
         SET(a_tid, (int)syscall(SYS_gettid));
-    /* exact: 128 frames are 2666.67 us, and rounding that down lost 250 ppm, which the old check
-     * added up into a false dropout every half minute at 128 frames */
+    /* exact: 512 frames at 48 kHz are 10666.67 us, and rounding that down
+     * (as before) added up into a false dropout every few minutes (every
+     * ~30 s at 128 frames) */
     double buf_us = (double)frames * 1e6 / (double)a_rate;
     if (AT(a_reset)) {
         SET(a_reset, 0);
-        a_prev = 0, a_open = t, a_debt_us = 0.0;
+        a_clock0 = t, a_made_us = 0, a_prev = 0;
+    }
+    else {
+        /* the sound made so far against the time gone by: more than three
+         * buffers behind, the device ran dry (a dropout); start counting again */
+        double gone = (double)(t - a_clock0);
+        if (gone > a_made_us + 3 * buf_us) {
+            ADD(a_late, 1);
+            a_clock0 = t - (uint64_t)a_made_us;
+        }
+        /* ahead by more than two buffers (callbacks in a burst, or a device
+         * clock a hair fast): no more credit than that, so a stall still shows */
+        else if (a_made_us > gone + 2 * buf_us)
+            a_clock0 = t - (uint64_t)(a_made_us - 2 * buf_us);
     }
     if (a_prev) {
         uint32_t gap = (uint32_t)(t - a_prev);
-        if (gap * 2.0 > buf_us * 3.0)
+        if (gap * 2 > buf_us * 3)
             ADD(a_slow, 1);
         if (gap > AT(a_gap_max))
             SET(a_gap_max, gap);
-        /* a dropout: the callbacks fell more than three buffers behind the sound they made, and
-         * didn't catch up (the device ran dry). Being early never banks credit (debt stays >= 0),
-         * and a device whose clock runs up to 0.1 % slow is followed, not counted; nor are the
-         * first 0.5 s after opening, while the device starts */
-        a_debt_us += (double)gap - buf_us * 1.001;
-        if (a_debt_us < 0.0 || t - a_open < 500000ULL)
-            a_debt_us = 0.0;
-        if (a_debt_us > 3.0 * buf_us) {
-            ADD(a_late, 1);
-            a_debt_us = 0.0;
-        }
     }
     a_prev = t;
+    /* a device clock up to 0.1 % slower than this one is followed, not
+     * counted: over a long session it would add up to a false dropout */
+    a_made_us += buf_us * 1.001;
     ADD(a_calls, 1);
     ADD(a_frames, (uint64_t)frames);
     return t;
