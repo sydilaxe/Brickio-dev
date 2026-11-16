@@ -4,7 +4,7 @@ USB audio, MIDI and sync for the sydilaxe TrimUI apps (TrimFX, Conduit, Columbia
 Jaffedrone, RadioScan) on MustardOS: one shared library, so each app gets the same low latency, the
 same device handling, the same MIDI and the same sync, and a fix made once reaches every app.
 
-**Version 0.1.0** · GPL-3.0-or-later · C on SDL2 and the kernel's ALSA files; libasound is loaded at run
+**Version 0.2.0** · GPL-3.0-or-later · C on SDL2 and the kernel's ALSA files; libasound is loaded at run
 time (as SDL does), so there is nothing to ship.
 
 **The promise: nothing breaks.** Every protocol the apps already speak to one another (the USB clock
@@ -20,6 +20,7 @@ apps' own code. Anything new is opt-in: an app that takes brickio and sets nothi
 | `aring.c/h` | The input's ring between two callbacks (two interfaces): a small cushion, clock drift followed by resampling, bit-exact when one interface does both | TrimFX |
 | `midi.c/h` | USB MIDI: every raw MIDI port, a reader thread, messages stamped on arrival, clock out on an absolute timetable, a **raw tap** for an app that keeps its own parser, a SysEx hook | TrimFX |
 | `link.c/h` | The **clock link** between Bricks over USB (the follower's bottom port as a USB device; any number follow one) | Conduit, Columbia Street, HI5, Jaffedrone, RadioScan (one copy, same bytes) |
+| `blink.c/h`, `blinkio.c/h` | **The Brick link's data channel:** audio and MIDI both ways between Bricks, over the receiver's bottom port beside the clock link, with named ports ([docs/brick-audio.md](docs/brick-audio.md)). Built and tested on the host; not yet in an app | new in 0.2 |
 | `linkpos.c/h` | The link's position message, `F0 7D 'T' 'L' …` (the apps' `midi_link_pos`) | the same |
 | `mclock.c/h` | **The musical clock:** MIDI clock and the USB link, in and out, on one timeline (the sound as heard). Clock in: tempo from a line through four beats of arrival times, phase held by trimming the app's speed; START / CONTINUE / STOP; a leading Brick's link position wins. Clock out and the link position stepped from the heard sound. No I/O: driven by the MIDI thread, talking to the app through a `ClockHost` of callbacks | Columbia Street, HI5, Jaffedrone, RadioScan's `midi.c` (decoupled), plus the MIDI 1.0 downbeat and one-beat tempo changes |
 | `sync.c/h` | **HI5S**, the Wi-Fi sync: tempo, bar phase and transport over UDP, one unit leading | RadioScan's (the others' copies, decoupled) |
@@ -93,8 +94,9 @@ mid-song, a clock running before START, a leading Brick's link, the clock out, t
 direct path against ALSA's null device (full duplex and playback only, 48 and 96 kHz); the link's
 USB descriptors and position message against the apps' own bytes; MIDI through a FIFO (running status,
 real-time bytes mid-message, the raw tap, the SysEx hook); HI5S's packet layout, older units and the
-election. `make check` compiles every module for the host and for the Brick (aarch64, glibc 2.28) with
-warnings as errors. CI runs both.
+election; and the Brick link's data channel between two sessions (two audio clocks 100 ppm apart, audio
+both ways, MIDI, a side going away). `make check` compiles every module for the host and for the Brick (aarch64, glibc 2.28) with
+warnings as errors, and the device tools (`make tools`: `blink-test`, `probe-iso`). CI runs both.
 
 A change to a shared protocol needs a new golden file and a note in [CHANGELOG.md](CHANGELOG.md) on how
 old and new apps get along. Versions are tags (`v0.1.0`); `VERSION`, `src/brickio.h` and the changelog
