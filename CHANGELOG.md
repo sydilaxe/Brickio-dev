@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`usbaudio`: a reopen's own missed periods no longer count toward a period more.** The 10 s count
+  starts 3 s after DUPLEX opens. Before, changing the buffer to 256 on the bluebox missed 9 periods in
+  the reopen's first second, which switched 256 to 3 queued (and saved it) though it runs clean with 2.
+  An `audio.txt` with `periods3@<card>=256` from that keeps it until the line is deleted.
+
 - **`duplex`: a missed period no longer turns into an endless string of restarts.** After a start or
   restart, while the input is slow to come in, the output is topped up with silence whenever it falls
   below half a period. A USB interface's input can take longer than the output's buffer to start (the
