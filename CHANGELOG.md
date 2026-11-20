@@ -16,10 +16,20 @@
   `bla_send` (lock-free, with the music's position of its first frame) and takes the leader's with
   `bla_pull`; a session is stopped only once the audio thread can't be using it. First used by Jaffedrone
   (its sound to every Brick on its hub) and Columbia Street (sampling it). `tests/test_blinkauto.c`.
-- **`mclock`: the tempo set once more when the fit is full.** An early, noisy fit's tempo was kept as long
-  as it was within 0.15 BPM, and the phase lock carried the rest: at 250 BPM it settled at 249.955, and
-  the sound wobbled twice as much (0.24 ms against 0.12, Jaffedrone's harness). Now when four beats of
-  ticks are in, the tempo is set from them once, finely; after that only a real change moves it.
+- **`mclock`: the phase lock settles, at any tempo** (checked in Columbia Street's and Jaffedrone's harnesses
+  as well as brickio's). After START the tempo isn't known for the first ticks, so the app could start a
+  good part of a tick out; that wound the phase lock's integral up to its limit (0.4 %) and it rang for
+  seconds, and more at fast tempos, as it added the same amount per tick (twice as much a second at 240
+  BPM as at 120). Now:
+  - the tick after the settling ticks places the app exactly, as after CONTINUE (Columbia Street's
+    harness: the phase after START within 0.000 of a 16th, was 0.025);
+  - the integral's gain is per second, and its limit 0.1 % (the tempo fit leaves far less than that);
+  - when the tempo is set, the trim the integral was carrying for the old one is handed over, so the
+    speed doesn't change at that moment;
+  - when four beats of ticks are in, the tempo is set from them once more, finely, so an early fit's
+    error isn't left for the integral to carry.
+  At 250 BPM with up to 2 ms of jitter: Columbia Street within 0.071 ms of steady (0.078 with its own
+  code), Jaffedrone 0.113 (0.120). brickio's: a clock running before START within 0.54 ms (0.90).
 - **`mclock`: ratios and START OUT** (`mclock_set_ratio`, `mclock_set_start_out`; 1:1 and on by default),
   Jaffedrone's IN DIV / OUT DIV and START OUT, so it can move onto `mclock` keeping them: a clock followed at
   a ratio of the app's tempo (0.5: half time) and one sent at another (2: double time), and the clock sent
