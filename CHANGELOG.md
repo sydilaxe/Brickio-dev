@@ -10,6 +10,12 @@
 - **`mclock`: relay** (`mclock_set_relay`, off by default). Following a clock or a leading Brick, the clock goes
   on too, stepped from this app's heard sound, with START and STOP, so gear further down lines up with what
   this app plays. `mclockio` leaves out the port the clock comes in on, so it never goes back to its source.
+- **`blinkauto`: the Brick link's data channel, managed** (new). `bla_lead_start` finds the receiving Bricks
+  on the hub every second and opens a session with each (dropping one that goes); `bla_follow_start` opens
+  the follower's, after `link_follow_data(1)`. The audio thread sends a block to every session with
+  `bla_send` (lock-free, with the music's position of its first frame) and takes the leader's with
+  `bla_pull`; a session is stopped only once the audio thread can't be using it. First used by Jaffedrone
+  (its sound to every Brick on its hub) and Columbia Street (sampling it). `tests/test_blinkauto.c`.
 - **`mclock`: the tempo set once more when the fit is full.** An early, noisy fit's tempo was kept as long
   as it was within 0.15 BPM, and the phase lock carried the rest: at 250 BPM it settled at 249.955, and
   the sound wobbled twice as much (0.24 ms against 0.12, Jaffedrone's harness). Now when four beats of
