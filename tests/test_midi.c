@@ -34,6 +34,7 @@ int main(void)
     if (!mkdtemp(dir)) return 1;
     snprintf(path, sizeof path, "%s/midiC9D0", dir);
     if (mkfifo(path, 0600)) { printf("no FIFO: skipped\n"); return 0; }
+    midi_set_priority(40); /* real time where allowed: the reader works either way */
     midi_set_raw(raw, NULL);
     midi_set_sysex(sysex, NULL);
     midi_start(path, NULL);

@@ -41,7 +41,7 @@ Bulk has no reserved slot each millisecond, but on a hub carrying one audio inte
 the bus is mostly idle, and the receiver's ring absorbs the jitter. Only brickio apps see these
 devices; a computer doesn't.
 
-## Built (0.2.0): the channel, not yet in an app
+## Built (0.2.0): the channel; managed for apps by `blinkauto` (Jaffedrone sends, Columbia Street samples)
 
 | | |
 |---|---|

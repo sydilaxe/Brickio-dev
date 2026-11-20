@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+- **`mclockio`: the musical clock, wired** (new). `mcio_init` / `mcio_start` connect `mclock` to brickio's
+  MIDI ports and to the Bricks on the USB clock link, both ways: clock bytes, song position and the link
+  position go to `mclock` on the reader's thread as they arrive; a real-time thread steps the clock out every
+  millisecond to every port and every following Brick (found and dropped as they come and go); every change
+  to the app is made holding the app's lock. An app that took `mclock` and did its own I/O can keep doing so.
+- **`mclock`: relay** (`mclock_set_relay`, off by default). Following a clock or a leading Brick, the clock goes
+  on too, stepped from this app's heard sound, with START and STOP, so gear further down lines up with what
+  this app plays. `mclockio` leaves out the port the clock comes in on, so it never goes back to its source.
+- **`blinkauto`: the Brick link's data channel, managed** (new). `bla_lead_start` finds the receiving Bricks
+  on the hub every second and opens a session with each (dropping one that goes); `bla_follow_start` opens
+  the follower's, after `link_follow_data(1)`. The audio thread sends a block to every session with
+  `bla_send` (lock-free, with the music's position of its first frame) and takes the leader's with
+  `bla_pull`; a session is stopped only once the audio thread can't be using it. First used by Jaffedrone
+  (its sound to every Brick on its hub) and Columbia Street (sampling it). `tests/test_blinkauto.c`.
+- **`mclock`: the phase lock settles, at any tempo** (checked in Columbia Street's and Jaffedrone's harnesses
+  as well as brickio's). After START the tempo isn't known for the first ticks, so the app could start a
+  good part of a tick out; that wound the phase lock's integral up to its limit (0.4 %) and it rang for
+  seconds, and more at fast tempos, as it added the same amount per tick (twice as much a second at 240
+  BPM as at 120). Now:
+  - the tick after the settling ticks places the app exactly, as after CONTINUE (Columbia Street's
+    harness: the phase after START within 0.000 of a 16th, was 0.025);
+  - the integral's gain is per second, and its limit 0.1 % (the tempo fit leaves far less than that);
+  - when the tempo is set, the trim the integral was carrying for the old one is handed over, so the
+    speed doesn't change at that moment;
+  - when four beats of ticks are in, the tempo is set from them once more, finely, so an early fit's
+    error isn't left for the integral to carry.
+  At 250 BPM with up to 2 ms of jitter: Columbia Street within 0.071 ms of steady (0.078 with its own
+  code), Jaffedrone 0.113 (0.120). brickio's: a clock running before START within 0.54 ms (0.90).
+- **`mclock`: ratios and START OUT** (`mclock_set_ratio`, `mclock_set_start_out`; 1:1 and on by default),
+  Jaffedrone's IN DIV / OUT DIV and START OUT, so it can move onto `mclock` keeping them: a clock followed at
+  a ratio of the app's tempo (0.5: half time) and one sent at another (2: double time), and the clock sent
+  without START and STOP. The phase lock and the tempo's threshold work in the clock's own 16ths, so a ratio
+  follows as closely as 1:1: a 140 BPM clock followed at half time, 70.00 BPM, within 0.7 ms with 1 ms of
+  jitter (`tests/test_mclock.c`). The tempo is set to a thousandth of a BPM (it was a hundredth). The link
+  is followed at the leader's own tempo, whatever the ratio.
+- **`mclock`: song position** (`mclock_song_position`): the next tick marks that 16th; while playing, the app
+  moves there. `midi.c`'s parser now reads F2 (it dropped it, and F1 / F3's data bytes were read as nothing,
+  as now, but without the song position).
+- **`mclock`: CONTINUE lands on the tick.** CONTINUE placed the app as though the next tick came a tick
+  later; with a clock that runs all the time it comes anywhere between two, which left the app up to a tick
+  out (10 ms at 120 BPM) for the seconds the phase lock took. Now the first tick after CONTINUE places the
+  app exactly: within 0.3 ms from that tick on, wherever CONTINUE fell (`tests/test_mclock.c`).
+- **`mclock`: lost ticks counted.** A tick lost on the way (a busy hub) made the count one short, and the
+  phase lock then held the app a whole tick out for good, and pulled the tempo down. A gap of 2-4 ticks'
+  length (within a third of one) while the tempo is settled is now counted as the ticks it was: one in 40
+  lost, the sound stays within 0.9 ms of the leader at the right tempo.
+- **`mclock`: led from START.** An app on AUTO that got START before the ticks had given a tempo sent a
+  START and a tick of its own back for a moment; an outside START or CONTINUE now makes it a follower at once
+  (`mclock_watch` lets go if no clock follows).
+- **`midi`, `link`: the readers at real-time priority, opt-in** (`midi_set_priority`, `link_follow_priority`).
+  A message's time is taken when its reader wakes; at normal priority the screen's work can delay that by
+  milliseconds, and a follower's tempo and phase come from those times. Refused (no permission), the threads
+  run as before. `midi_set_clock`: the clock's bytes on the reader thread as they arrive (what `mclockio`
+  uses); `midi_send_except`: to every port but one.
+- Every addition is opt-in: an app that takes this version and calls nothing new behaves as before, but for
+  the three `mclock` fixes above (CONTINUE, lost ticks, START), which only change what was wrong.
+
 - **`usbaudio`: a reopen's own missed periods no longer count toward a period more.** The 10 s count
   starts 3 s after DUPLEX opens. Before, changing the buffer to 256 on the bluebox missed 9 periods in
   the reopen's first second, which switched 256 to 3 queued (and saved it) though it runs clean with 2.
