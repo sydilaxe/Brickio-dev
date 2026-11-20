@@ -47,6 +47,7 @@ static double jitter(double ms) { rs = rs * 1103515245u + 12345u; return ((rs >>
  * clock runs all the time; a sequencer's starts with START: 0). Returns the worst phase error (ms)
  * over the last `measure` seconds: the follower's heard sound against the leader's, at each tick */
 static int drop_every; /* 0: every tick arrives; n: every nth is lost on the way (a busy hub) */
+static double in_ratio = 1.0; /* the app follows at this ratio of the clock's tempo (mclock_set_ratio) */
 static double follow_clock2(double lb, double lb2, double pre, double secs, double measure, double jit_ms, double *mean)
 {
     static uint64_t t0 = 10000000;
@@ -61,7 +62,7 @@ static double follow_clock2(double lb, double lb2, double pre, double secs, doub
         run(5e-5);
         if (!started && t >= start) mclock_realtime(0xfa, t), started = 1;
         if (k > 0 && t >= sent_at && t - sent_at < 50 && t > start + (uint64_t)((secs - measure) * 1e6)) {
-            double e = fabs(steps_ms(heard() - k / 6.0, 60e6 / (tick_us * 24.0)));
+            double e = fabs(steps_ms(heard() - k / 6.0 * in_ratio, 60e6 / (tick_us * 24.0) * in_ratio));
             worst = e > worst ? e : worst, sum += e, n++;
         }
         if (t >= arrives) {
@@ -114,6 +115,17 @@ int main(void)
     w = follow_clock(120.0, 3.0, 20.0, 8.0, 1.0, &mean);
     printf("clock in at 120 BPM, running before START: the tempo %.2f, within %.3f ms (mean %.3f)\n", bpm, w, mean);
     CHECK(fabs(bpm - 120.f) < 0.15f && mean < 0.75 && w < 1.5, "a clock running before START: locked, not a tick off (mean %.3f ms)", mean);
+
+    /* IN 1/2: a 140 BPM clock followed at half time: the app at 70, its heard sound where the ticks put
+     * it at half speed (a 16th of the app's every 12 ticks) */
+    mclock_reset(), playing = 0, bpm = 100.f;
+    mclock_set_ratio(0.5, 1.0);
+    in_ratio = 0.5;
+    w = follow_clock(140.0, 0.0, 20.0, 8.0, 1.0, &mean);
+    printf("clock in at 140 BPM, followed at 1/2: the tempo %.2f, within %.3f ms (mean %.3f)\n", bpm, w, mean);
+    CHECK(fabs(bpm - 70.f) < 0.1f && mean < 0.75 && w < 1.5, "half time: 70 BPM, locked (%.2f, mean %.3f ms)", bpm, mean);
+    mclock_set_ratio(1.0, 1.0);
+    in_ratio = 1.0;
 
     /* ticks lost on the way: one in 40 (a busy hub), 1 ms of jitter. Counted all the same: the heard sound
      * stays on the right tick, and the tempo isn't pulled down */
@@ -196,6 +208,43 @@ int main(void)
         int n = mclock_step(t + 1000, out, sizeof out);
         CHECK(n == 1 && out[0] == 0xfc, "stopping sends STOP");
     }
+    /* OUT x2: the clock goes out at double the app's tempo, each tick still with the heard sound; START
+     * OUT off: the ticks alone, no START or STOP */
+    for (int so = 1; so >= 0; so--) {
+        mclock_reset(), playing = 0, bpm = 120.f, rate = 1.0;
+        mclock_set_ratio(1.0, 2.0);
+        mclock_set_start_out(so);
+        playing = 1, pos = 0.0;
+        uint64_t t = 150000000;
+        int n_ticks = 0, starts = 0, stops = 0;
+        double worst = 0.0;
+        long sent = (long)floor(heard() * 12.0);
+        for (int i = 0; i < 10000; i++) { /* 10 s */
+            run(1e-3);
+            t += 1000;
+            uint8_t out[16];
+            int n = mclock_step(t, out, sizeof out);
+            for (int j = 0; j < n; j++) {
+                starts += out[j] == 0xfa;
+                if (out[j] == 0xf8) {
+                    sent++, n_ticks++;
+                    double e = fabs(steps_ms(heard() - sent / 12.0, bpm));
+                    if (i > 2000) worst = e > worst ? e : worst;
+                }
+            }
+        }
+        playing = 0;
+        uint8_t out[8];
+        int n = mclock_step(t + 1000, out, sizeof out);
+        for (int j = 0; j < n; j++) stops += out[j] == 0xfc;
+        printf("clock out x2, START OUT %s: %d ticks in 10 s at 120 BPM (want %d), within %.3f ms of the heard sound, START %d STOP %d\n",
+               so ? "on" : "off", n_ticks, 10 * 96, worst, starts, stops);
+        CHECK(abs(n_ticks - 960) <= 3 && worst < 1.5, "x2: 96 ticks a second with the sound (%d, %.3f ms)", n_ticks, worst);
+        CHECK(starts == so && stops == so, "START OUT %s: START %d, STOP %d", so ? "on" : "off", starts, stops);
+    }
+    mclock_set_ratio(1.0, 1.0);
+    mclock_set_start_out(1);
+
     /* SEND: an incoming clock isn't followed */
     mclock_reset(), playing = 0;
     mclock_realtime(0xfa, 200000000);

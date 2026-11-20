@@ -10,6 +10,13 @@
 - **`mclock`: relay** (`mclock_set_relay`, off by default). Following a clock or a leading Brick, the clock goes
   on too, stepped from this app's heard sound, with START and STOP, so gear further down lines up with what
   this app plays. `mclockio` leaves out the port the clock comes in on, so it never goes back to its source.
+- **`mclock`: ratios and START OUT** (`mclock_set_ratio`, `mclock_set_start_out`; 1:1 and on by default),
+  Jaffedrone's IN DIV / OUT DIV and START OUT, so it can move onto `mclock` keeping them: a clock followed at
+  a ratio of the app's tempo (0.5: half time) and one sent at another (2: double time), and the clock sent
+  without START and STOP. The phase lock and the tempo's threshold work in the clock's own 16ths, so a ratio
+  follows as closely as 1:1: a 140 BPM clock followed at half time, 70.00 BPM, within 0.7 ms with 1 ms of
+  jitter (`tests/test_mclock.c`). The tempo is set to a thousandth of a BPM (it was a hundredth). The link
+  is followed at the leader's own tempo, whatever the ratio.
 - **`mclock`: song position** (`mclock_song_position`): the next tick marks that 16th; while playing, the app
   moves there. `midi.c`'s parser now reads F2 (it dropped it, and F1 / F3's data bytes were read as nothing,
   as now, but without the song position).
