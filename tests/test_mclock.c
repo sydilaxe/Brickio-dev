@@ -46,6 +46,7 @@ static double jitter(double ms) { rs = rs * 1103515245u + 12345u; return ((rs >>
  * 16th / 6 (each arriving 0-jit ms late). pre: seconds of clock before START (a drum machine's
  * clock runs all the time; a sequencer's starts with START: 0). Returns the worst phase error (ms)
  * over the last `measure` seconds: the follower's heard sound against the leader's, at each tick */
+static int drop_every; /* 0: every tick arrives; n: every nth is lost on the way (a busy hub) */
 static double follow_clock2(double lb, double lb2, double pre, double secs, double measure, double jit_ms, double *mean)
 {
     static uint64_t t0 = 10000000;
@@ -64,7 +65,7 @@ static double follow_clock2(double lb, double lb2, double pre, double secs, doub
             worst = e > worst ? e : worst, sum += e, n++;
         }
         if (t >= arrives) {
-            mclock_realtime(0xf8, t); /* stamped as it arrives, as the MIDI thread does */
+            if (!drop_every || k % drop_every != drop_every - 1) mclock_realtime(0xf8, t); /* stamped as it arrives, as the MIDI thread does */
             k++;
             if (t > start + (uint64_t)(secs * 1e6 / 3)) tick_us = 60e6 / (lb2 * 24.0); /* the leader's tempo changes, playing on */
             next += tick_us;
@@ -113,6 +114,15 @@ int main(void)
     w = follow_clock(120.0, 3.0, 20.0, 8.0, 1.0, &mean);
     printf("clock in at 120 BPM, running before START: the tempo %.2f, within %.3f ms (mean %.3f)\n", bpm, w, mean);
     CHECK(fabs(bpm - 120.f) < 0.15f && mean < 0.75 && w < 1.5, "a clock running before START: locked, not a tick off (mean %.3f ms)", mean);
+
+    /* ticks lost on the way: one in 40 (a busy hub), 1 ms of jitter. Counted all the same: the heard sound
+     * stays on the right tick, and the tempo isn't pulled down */
+    mclock_reset(), playing = 0, bpm = 100.f;
+    drop_every = 40;
+    w = follow_clock(140.0, 1.0, 20.0, 8.0, 1.0, &mean);
+    drop_every = 0;
+    printf("clock in at 140 BPM, one tick in 40 lost: the tempo %.2f, within %.3f ms (mean %.3f)\n", bpm, w, mean);
+    CHECK(fabs(bpm - 140.f) < 0.15f && mean < 0.75 && w < 1.5, "lost ticks: still locked to the right tick (%.2f BPM, mean %.3f ms)", bpm, mean);
 
     /* STOP stops; the outside clock gone quiet is let go */
     mclock_realtime(0xfc, 50000000);
@@ -195,6 +205,47 @@ int main(void)
     playing = 1;
     uint8_t o[4];
     CHECK(mclock_step(300000000, o, sizeof o) == 0, "OFF: nothing goes out");
+
+    /* song position, then CONTINUE: stopped, with the clock running all the time (most gear), a
+     * sequencer sends F2 (16th 32) and CONTINUE somewhere between two ticks; the first tick after it
+     * marks 16th 32. The heard sound must be there from that tick on, wherever CONTINUE fell */
+    mclock_set_mode(MCLOCK_AUTO);
+    for (int c = 0; c < 4; c++) {
+        static const double at[4] = {0.02, 0.35, 0.65, 0.98}; /* where between the ticks CONTINUE comes */
+        mclock_reset(), playing = 0, bpm = 100.f, rate = 1.0;
+        double tick_us = 60e6 / (120.0 * 24.0), worst = 0.0;
+        uint64_t t0 = 400000000 + (uint64_t)c * 100000000, t = t0;
+        double next = (double)t0;
+        int sent = 0, k = -1, cont = 0;
+        mclock_song_position(32);
+        for (; t < t0 + 12000000; t += 50) { /* 2 s stopped, then 10 s on */
+            run(5e-5);
+            if (!cont && sent >= 96 && (double)t >= next - tick_us + at[c] * tick_us) {
+                mclock_realtime(0xfb, t), cont = 1, k = 0;
+            }
+            if ((double)t >= next) {
+                mclock_realtime(0xf8, t);
+                sent++, next += tick_us;
+                if (cont) {
+                    double e = fabs(steps_ms(heard() - (32.0 + k / 6.0), 120.0));
+                    worst = k > 0 && e > worst ? e : worst; /* from the tick after the one that places it */
+                    k++;
+                }
+            }
+        }
+        printf("song position: CONTINUE %.2f of a tick after one, from 16th 32: plays %d, the tempo %.2f, within %.3f ms from the first tick on\n",
+               at[c], playing, bpm, worst);
+        CHECK(playing && worst < 0.5, "CONTINUE at %.2f of a tick: the heard sound at the 16th the ticks mark (%.3f ms)", at[c], worst);
+    }
+    {
+        /* while playing: the app moves there at once */
+        mclock_song_position(64);
+        CHECK(fabs(pos - (64.0 + 0.02 * bpm / 15.0)) < 1e-5, "song position while playing moves the app there (%.4f)", pos);
+        mclock_set_transport(0);
+        mclock_song_position(0);
+        CHECK(pos > 60.0, "the clock only: song position ignored");
+        mclock_set_transport(1);
+    }
 
     printf("\n%d checks, %d failed\n", checks, fails);
     return fails != 0;

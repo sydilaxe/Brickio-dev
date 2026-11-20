@@ -106,6 +106,42 @@ app uses one MIDI reader, never both:
 The plan is for brickio's MIDI to take in the apps' shared parts (clock follow with phase lock, clock
 out to the heard sound, MIDI learn), so the first option can become the third over time.
 
+## 4b. The clock, both ways: `mclockio`
+
+For an app whose sound should follow a clock and lead one (most of them), `mclockio` does the wiring that
+each app otherwise writes itself:
+
+```c
+static void lock(void) { pthread_mutex_lock(&audio_mx); }   /* the mutex the audio callback holds */
+static void unlock(void) { pthread_mutex_unlock(&audio_mx); }
+static const ClockHost host = {get_bpm, set_bpm, get_position, set_position, set_rate, get_playing, set_playing};
+
+McioConfig mc = {.host = &host, .lock = lock, .unlock = unlock, .midi = 1, .links = 1, .notice = toast};
+mcio_init(&mc);
+midi_set_priority(40);                     /* the reader stamps each byte the moment it arrives */
+midi_start(NULL, wake);                    /* notes and CCs still come through midi_poll / midi_set_raw */
+link_follow_priority(40);
+link_follow_start("APP", mcio_link_bytes, NULL, toast); /* a leading Brick, on the bottom port */
+mcio_start();
+mclock_set_mode(MCLOCK_AUTO);              /* the app's MIDI setting, any time */
+mclock_set_relay(1);                       /* following, pass the clock on (from this app's heard sound) */
+```
+
+The host's functions are plain reads and writes: `mclockio` holds the app's lock around every `set_*`. Run
+`aclock` in the audio callback (`aclock_request` first thing, `aclock_made` after rendering) and keep
+`mclock_set_latency` and `aclock_init` on the output's real queue (below): every Brick then times its clock
+to its own heard sound, so Bricks with different interfaces (a MixPre on one, a bluebox on another) meet at
+the speakers, not just at their USB ports.
+
+## 4c. Apps together: audio and clock between them
+
+An app that records another's sound (Columbia Street sampling Jaffedrone, Conduit looping RadioScan) lines
+it up by the round trip: what the other app plays reaches this app's input that much after this app's own
+clock (or the link) said it should. With one interface both ways (DUPLEX), the input's own part is what
+`dx_held` reports for the input, plus a period; an app that measures it with a cable (`ua_latency_test`)
+has the converters too. Keep the figures with the interface (they differ from one to another), and let the
+user trim what is left by ear.
+
 ## 5. Checking it on a Brick
 
 With `<APP>_LOG=2` (a status line a second), play for a few minutes at 128 frames, then 64:
