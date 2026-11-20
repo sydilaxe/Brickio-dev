@@ -131,8 +131,13 @@ static void clock_tick(uint64_t t)
      * finely while the fit is still filling (after START or a tempo change) */
     float bpm = (float)(60e6 / (tick_avg_us * 24.0) * in_r); /* the ratio: 0.5 half time */
     bpm = bpm < 40.f ? 40.f : bpm > 250.f ? 250.f : bpm;
-    /* (in the clock's own terms, so a ratio follows as closely as 1:1) */
-    float thr = (float)((tk_n < TK ? 0.05 : 0.15) * in_r);
+    /* (in the clock's own terms, so a ratio follows as closely as 1:1). Once the fit is full (four beats),
+     * the tempo is set from it once more, finely: an early, noisy fit's tempo isn't left for the phase lock
+     * to carry; after that only a real change moves it, so jitter can't make it hunt */
+    static int fit_full;
+    if (tk_n < TK) fit_full = 0;
+    float thr = (float)((tk_n < TK ? 0.05 : fit_full ? 0.15 : 0.005) * in_r);
+    if (tk_n >= TK) fit_full = 1;
     if (fabsf(bpm - H->bpm()) > thr) H->set_bpm(roundf(bpm * 1000.f) / 1000.f); /* finer while the fit fills */
     if (!ext_running || !H->playing()) return;
     ticks += 1 + lost;

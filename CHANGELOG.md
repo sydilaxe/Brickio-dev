@@ -10,6 +10,10 @@
 - **`mclock`: relay** (`mclock_set_relay`, off by default). Following a clock or a leading Brick, the clock goes
   on too, stepped from this app's heard sound, with START and STOP, so gear further down lines up with what
   this app plays. `mclockio` leaves out the port the clock comes in on, so it never goes back to its source.
+- **`mclock`: the tempo set once more when the fit is full.** An early, noisy fit's tempo was kept as long
+  as it was within 0.15 BPM, and the phase lock carried the rest: at 250 BPM it settled at 249.955, and
+  the sound wobbled twice as much (0.24 ms against 0.12, Jaffedrone's harness). Now when four beats of
+  ticks are in, the tempo is set from them once, finely; after that only a real change moves it.
 - **`mclock`: ratios and START OUT** (`mclock_set_ratio`, `mclock_set_start_out`; 1:1 and on by default),
   Jaffedrone's IN DIV / OUT DIV and START OUT, so it can move onto `mclock` keeping them: a clock followed at
   a ratio of the app's tempo (0.5: half time) and one sent at another (2: double time), and the clock sent
